@@ -79,7 +79,9 @@
             // Add the terrain layer by default
             terrainLayer.addTo(mymap);
 
-            labelsLayer = L.esri.basemapLayer('ImageryLabels');
+            labelsLayer = L.esri.basemapLayer('ImageryLabels', {
+                maxZoom: 18
+            });
 
             // Add the search bar
             L.Control.geocoder().addTo(mymap);
