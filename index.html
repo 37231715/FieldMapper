@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Field Mapping</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+
+    <!-- Leaflet Search CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+
+    <!-- Leaflet Search JavaScript -->
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+    <!-- Turf.js JavaScript (Hectares calculation) -->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf"></script>
+
+    <!-- Esri Leaflet for Satellite Imagery -->
+    <script src="https://unpkg.com/esri-leaflet"></script>
+
+    <style>
+        body, html { height: 100%; margin: 0; }
+        #mapid { height: 90%; }
+        .button-container {
+            position: absolute;
+            top: 10px;
+            left: 4%;
+            z-index: 1000;
+        }
+        #measurementDisplay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        #coordsDisplay {
+            position: absolute;
+            bottom: 11%;
+            left: 10px;
+            background: white;
+            padding: 5px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+    </style>
+
+    <!-- Google AdSense-->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9357756604246474"
+     crossorigin="anonymous"></script>
+
+</head>
+<body>
+    <div id="coordsDisplay" style="position: absolute; bottom: 11%; left: 10px; background: white; padding: 5px; border-radius: 5px;"></div>
+    <div id="mapid"></div>
+    <div class="button-container">
+        <button onclick="setMode('distance')">Measure Distance</button>
+        <button onclick="setMode('area')">Measure Area</button>
+        <button onclick="switchToSatelliteView()">Satellite View</button>
+        <button onclick="switchToTerrainView()">Terrain View</button>
+    </div>
+    <div id="measurementDisplay"></div>
+    
+    
+    
+    <script>
+        // Define global variables
+        var mymap, terrainLayer, satelliteLayer;
+        var mode = 'distance';
+        var markers = [];
+        var polyline = null;
+        var polygon = null;
+
+        // Initialize the map
+        function initializeMap() {
+            mymap = L.map('mapid').setView([-29.624862, 24.085679], 13);
+
+            // Define the terrain and satellite layers
+            terrainLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors | Developed by Neill Tuck'
+            });
+
+            satelliteLayer = L.esri.basemapLayer('Imagery', {
+                maxZoom: 18,
+                attribution: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            });
+
+            // Add the terrain layer by default
+            terrainLayer.addTo(mymap);
+
+            labelsLayer = L.esri.basemapLayer('ImageryLabels', {
+                maxZoom: 18
+            });
+
+            // Add the search bar
+            L.Control.geocoder().addTo(mymap);
+
+            // Add a marker when the map is clicked
+            mymap.on('click', function(e) {
+            var newMarker = L.marker(e.latlng, { draggable: true }).addTo(mymap);
+            newMarker.on('dragend', updateMapAfterDrag); // Update after drag
+            newMarker.on('click', markerOnClick); // Remove on click
+            markers.push(newMarker);
+
+            if (mode === 'distance') {
+                updatePolyline();
+                updateMeasurementDisplay();
+            } else if (mode === 'area') {
+                updatePolygon();
+            }
+
+            // Display coordinates of the marker
+            document.getElementById('coordsDisplay').innerHTML = 'Coords: ' + e.latlng.lat.toFixed(6) + ', ' + e.latlng.lng.toFixed(6); 
+
+            });
+
+        // Remove a marker from the map and update the polyline or polygon
+        function markerOnClick(e) {
+            var markerIndex = markers.findIndex(marker => marker === e.target);
+            if (markerIndex !== -1) {
+                mymap.removeLayer(markers[markerIndex]);
+                markers.splice(markerIndex, 1);
+                if (mode === 'distance') {
+                    updatePolyline();
+                } else if (mode === 'area') {
+                    updatePolygon();
+                }
+                updateMeasurementDisplay();
+            }
+        }
+        }
+
+        // Call the initialize map function when the window loads
+        window.onload = initializeMap;
+
+        // Function to switch to satellite view
+        function switchToSatelliteView() {
+            if (mymap.hasLayer(terrainLayer)) {
+                mymap.removeLayer(terrainLayer);
+            }
+            satelliteLayer.addTo(mymap);
+            labelsLayer.addTo(mymap);
+        }
+
+        // Function to switch back to terrain view
+        function switchToTerrainView() {
+            if (mymap.hasLayer(satelliteLayer)) {
+                mymap.removeLayer(satelliteLayer);
+            }
+            if (mymap.hasLayer(labelsLayer)) {
+                mymap.removeLayer(labelsLayer);
+            }
+            terrainLayer.addTo(mymap);
+        }
+
+
+        // Set the mode to 'distance' or 'area'
+        function setMode(newMode) {
+            mode = newMode;
+            clearMap();
+            document.getElementById('measurementDisplay').innerHTML = '';
+        }
+
+        // Clear all markers, polylines, and polygons from the map
+        function clearMap() {
+            markers.forEach(marker => mymap.removeLayer(marker));
+            markers = [];
+            if (polyline) {
+                mymap.removeLayer(polyline);
+                polyline = null;
+            }
+            if (polygon) {
+                mymap.removeLayer(polygon);
+                polygon = null;
+            }
+        }
+
+        // Calculate total distance between markers
+        function calculateTotalDistance() {
+            var totalDistance = 0;
+            for (var i = 1; i < markers.length; i++) {
+                totalDistance += markers[i - 1].getLatLng().distanceTo(markers[i].getLatLng());
+            }
+            return (totalDistance / 1000).toFixed(2); // Convert to kilometers
+        }
+
+        // Calculate the area of the polygon
+        function calculateArea() {
+            if (markers.length > 2) {
+                var latlngs = markers.map(marker => [marker.getLatLng().lng, marker.getLatLng().lat]);
+                latlngs.push(latlngs[0]); // Close the polygon by duplicating the first point
+                var polygon = turf.polygon([latlngs]);
+                var area = turf.area(polygon) / 10000; // Convert to hectares
+                return area.toFixed(2); // Return area in hectares with two decimals
+            }
+            return 0;
+        }
+
+        // Display the measurement (distance or area)
+        function displayMeasurement(measurement) {
+            if (mode === 'distance' && measurement > 0) {
+                document.getElementById('measurementDisplay').innerHTML = 'Total Distance: ' + measurement + ' km';
+            } else if (mode === 'area' && measurement > 0) {
+                document.getElementById('measurementDisplay').innerHTML = 'Area: ' + measurement + ' hectares';
+            } else {
+                document.getElementById('measurementDisplay').innerHTML = ''; // Clear display if no measurement
+            }
+        }
+
+        // Update the measurement display
+        function updateMeasurementDisplay() {
+            if (mode === 'distance' && markers.length > 1) {
+                var totalDistance = calculateTotalDistance();
+                displayMeasurement(totalDistance);
+            } else if (mode === 'area' && markers.length > 2) {
+                var area = calculateArea(); // Calculate area
+                displayMeasurement(area); // Display area
+            } else {
+                document.getElementById('measurementDisplay').innerHTML = '';
+            }
+        }
+
+
+
+        // Update the polyline or polygon when a marker is dragged
+        function updateMapAfterDrag() {
+            if (mode === 'distance') {
+                updatePolyline();
+            } else if (mode === 'area') {
+                updatePolygon();
+            }
+            updateMeasurementDisplay();
+        }
+
+        // Update the polyline to connect all markers
+        function updatePolyline() {
+            if (polyline) {
+                mymap.removeLayer(polyline);
+            }
+            if (mode === 'distance') {
+                polyline = L.polyline(markers.map(marker => marker.getLatLng()), { color: 'blue'}).addTo(mymap);
+            }
+        }
+
+        // Update the polygon to include all markers
+        function updatePolygon() {
+            if (polygon) {
+                mymap.removeLayer(polygon);
+            }
+            if (mode === 'area' && markers.length > 2) {
+                polygon = L.polygon(markers.map(marker => marker.getLatLng()), { color: 'blue', fillOpacity: 0.4 }).addTo(mymap);
+                updateMeasurementDisplay();
+            }
+        }
+
+
+    </script>
+</body>
+</html>
